@@ -175,19 +175,21 @@ export class Retry {
     this.milliseconds_from_now_string = new Date(Date.now() + time).toUTCString();
 
     this.refs.promise = new Promise((resolve, reject) => {
+      const wrapResolve = (toResolve: any) => {
+        this.status = RetryStatus.Completed;
+        this._attempts++;
+        resolve(toResolve);
+      }
+
+      const wrapReject = (toReject: any) => {
+        this.status = RetryStatus.Failed;
+        this._attempts++;
+        reject(toReject);
+      }
+
       this.refs.timeout = setTimeout(async () => {
         this._status = RetryStatus.Retrying;
-        if (this._attempts) this.logger.log(`retrying...attempt #${this._attempts}`);
-        const wrapResolve = (toResolve: any) => {
-          this.status = RetryStatus.Completed;
-          this._attempts++;
-          resolve(toResolve);
-        }
-        const wrapReject = (toReject: any) => {
-          this.status = RetryStatus.Failed;
-          this._attempts++;
-          reject(toReject);
-        }
+        if (this._attempts) this.logger.log(`retrying...attempt #${this._attempts}`);        
         this.refs.context && this.refs.context(wrapResolve, wrapReject, this);
       }, time);
     });
