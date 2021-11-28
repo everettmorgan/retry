@@ -214,9 +214,8 @@ export class Retry {
    * Stops the scheduled Retry.
    */
   public stop(): void {
-    if (this.status !== RetryStatus.Retrying) {
-      clearTimeout(this.refs.timeout as NodeJS.Timeout);
-      this.status = RetryStatus.Stopped;
-    }
+    clearTimeout(this.refs.timeout as NodeJS.Timeout);
+    this.refs.timeout = undefined;
+    this.status = RetryStatus.Stopped;
   }
 }
