@@ -1,11 +1,12 @@
 {
-  "include": ["src/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"],
   "compilerOptions": {
     "outDir": "dist",
     "target": "ESNext",
     "module": "CommonJS",
     "strict": true,
+    "skipLibCheck": true,
     "alwaysStrict": true,
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "node",

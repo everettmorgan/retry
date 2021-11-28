@@ -28,5 +28,5 @@ jobs:
         cache: 'npm'
     - run: npm install yarn -g
     - run: rm -rf node_modules && yarn install --frozen-lockfile
-    - run: yarn tsc -p ./tsconfig.json
+    - run: yarn tsc
     - run: yarn test
