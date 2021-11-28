@@ -1,3 +1,3 @@
-# Base Typescript Project
+# @ejm/retry
 
-A description goes here.
+A simple and lightweight package to retry various execution contexts.

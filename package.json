@@ -1,10 +1,10 @@
 {
-  "name": "---name---",
+  "name": "@ejm/retry",
   "version": "1.0.0",
   "main": "dist/index.js",
-  "typings": "dist/index.d.ts",
+  "typings": "dist/types",
   "license": "MIT",
-  "description": "---description---",
+  "description": "A simple and lightweight package to retry various execution contexts.",
   "repository": "git@github.com:everettmorgan/base-ts.git",
   "author": "Everett Morgan",
   "scripts": {
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@types/chai": "^4.2.22",
+    "@types/chai-as-promised": "^7.1.4",
     "@types/dotenv": "^8.2.0",
     "@types/express": "^4.17.13",
     "@types/jest": "^27.0.3",
@@ -26,6 +27,7 @@
     "@types/redis": "^2.8.32",
     "@types/uuid": "^8.3.3",
     "chai": "^4.3.4",
+    "chai-as-promised": "^7.1.1",
     "mocha": "^9.1.3",
     "ts-node": "^10.4.0",
     "typescript": "^4.5.2"
