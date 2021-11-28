@@ -1,11 +1,11 @@
 {
-  "name": "@ejm/retry",
-  "version": "1.0.0",
+  "name": "ejmorgan-retry",
+  "version": "1.0.2",
   "main": "dist/index.js",
   "typings": "dist/types",
   "license": "MIT",
   "description": "A simple and lightweight package to retry various execution contexts.",
-  "repository": "git@github.com:everettmorgan/base-ts.git",
+  "repository": "git@github.com:everettmorgan/retry.git",
   "author": "Everett Morgan",
   "scripts": {
     "tsc": "./node_modules/typescript/bin/tsc",
