@@ -1,6 +1,13 @@
-# @ejm/retry
+# ejmorgan-retry
 
 A simple and lightweight package to retry various execution contexts.
+## Installation
+
+```bash
+npm install ejmorgan-retry
+// or
+yarn add ejmorgan-retry
+```
 
 ## Usage
 
