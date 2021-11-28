@@ -11,6 +11,23 @@ yarn add ejmorgan-retry
 
 ## Usage
 
+### Basic
+```javascript
+const { Retry } = require("ejmorgan-retry");
+
+const retry = new Retry(function(resolve, reject, retry) {
+    if (retry.attempts < 5)
+        resolve(retry.reschedule(2000))
+    else
+        reject("oof!");
+})
+
+retry.schedule()
+    .then((ok) => console.log(ok))
+    .catch((err) => console.error(err));
+```
+
+### HTTP Request
 ```javascript
 const https = require("https");
 const { Retry } = require("ejmorgan-retry");
