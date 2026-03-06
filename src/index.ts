@@ -1,2 +1,2 @@
-// eslint-disable-next-line import/no-unresolved, import/extensions, import/prefer-default-export
-export { Retry } from './lib/retry';
+export { Retry } from "./retry";
+export type { RetryCallback, RetryOptions, RetryState } from "./retry";
