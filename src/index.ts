@@ -1,2 +1,4 @@
-export { Retry } from "./retry";
-export type { RetryCallback, RetryOptions, RetryState } from "./retry";
+export { retry } from "./retry";
+export { AbortError, TimeoutError } from "./errors";
+export * as backoff from "./backoff";
+export type { RetryOptions, RetryableFunction, BackoffStrategy } from "./types";

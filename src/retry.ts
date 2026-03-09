@@ -1,97 +1,127 @@
-import { randomUUID } from "crypto";
+import { AbortError, TimeoutError } from "./errors";
+import { exponential } from "./backoff";
+import type { RetryOptions, RetryableFunction } from "./types";
 
-export type RetryState =
-  | "idle"
-  | "scheduled"
-  | "running"
-  | "completed"
-  | "failed"
-  | "stopped";
+const DEFAULT_RETRIES = 3;
 
-export type RetryCallback<T> = (
-  resolve: (value: T | PromiseLike<T>) => void,
-  reject: (reason: unknown) => void,
-  retry: Retry<T>,
-) => void;
+export async function retry<T>(
+  fn: RetryableFunction<T>,
+  options: RetryOptions = {},
+): Promise<T> {
+  const {
+    retries = DEFAULT_RETRIES,
+    backoff = exponential(),
+    signal,
+    timeout,
+    totalTimeout,
+    shouldRetry,
+    onRetry,
+    unref = false,
+  } = options;
 
-export interface RetryOptions {
-  onAttempt?: (attemptNumber: number) => void;
+  const startTime = Date.now();
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    throwIfAborted(signal);
+    throwIfTotalTimeoutExceeded(totalTimeout, startTime);
+
+    try {
+      const result = await executeAttempt(fn, attempt, timeout, signal);
+      return result;
+    } catch (error) {
+      if (error instanceof AbortError) {
+        throw error.originalError;
+      }
+
+      throwIfAborted(signal);
+
+      if (shouldRetry && !(await shouldRetry(error))) {
+        throw error;
+      }
+
+      lastError = error;
+
+      if (attempt <= retries) {
+        if (onRetry) {
+          await onRetry(error, attempt);
+        }
+        await sleep(backoff(attempt), unref);
+      }
+    }
+  }
+
+  throw lastError;
 }
 
-export class Retry<T> {
-  readonly uuid: string;
-  readonly created: number;
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new AbortError("The operation was aborted");
+  }
+}
 
-  private _attemptCount = 0;
-  private _state: RetryState = "idle";
-  private readonly callback: RetryCallback<T>;
-  private readonly onAttempt?: (attemptNumber: number) => void;
-  private pendingPromise?: Promise<T>;
-  private pendingTimeout?: ReturnType<typeof setTimeout>;
+function throwIfTotalTimeoutExceeded(totalTimeout: number | undefined, startTime: number): void {
+  if (totalTimeout === undefined) return;
+  const elapsed = Date.now() - startTime;
+  if (elapsed >= totalTimeout) {
+    throw new TimeoutError(`Total timeout of ${totalTimeout}ms exceeded after ${elapsed}ms`);
+  }
+}
 
-  constructor(callback: RetryCallback<T>, options?: RetryOptions) {
-    this.uuid = randomUUID();
-    this.created = Date.now();
-    this.callback = callback;
-    this.onAttempt = options?.onAttempt;
+async function executeAttempt<T>(
+  fn: RetryableFunction<T>,
+  attempt: number,
+  timeout: number | undefined,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  const bail = (error: Error): never => {
+    throw new AbortError(error);
+  };
+
+  if (timeout === undefined) {
+    return await fn(bail, attempt);
   }
 
-  get attemptCount(): number {
-    return this._attemptCount;
-  }
+  return await raceWithTimeout(fn(bail, attempt), timeout, signal);
+}
 
-  get state(): RetryState {
-    return this._state;
-  }
+async function raceWithTimeout<T>(
+  promise: T | Promise<T>,
+  timeout: number,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  let abortHandler: (() => void) | undefined;
 
-  schedule(delayMs = 0): Promise<T> {
-    if (this.isActive() && this.pendingPromise) {
-      return this.pendingPromise;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new TimeoutError(`Attempt timed out after ${timeout}ms`));
+    }, timeout);
+
+    if (signal) {
+      abortHandler = () => {
+        reject(new AbortError("The operation was aborted"));
+      };
+      signal.addEventListener("abort", abortHandler, { once: true });
     }
+  });
 
-    this.pendingPromise = this.createAttemptPromise(delayMs);
-    this._state = "scheduled";
-    return this.pendingPromise;
-  }
-
-  reschedule(delayMs: number): Promise<T> {
-    this.stop();
-    return this.schedule(delayMs);
-  }
-
-  stop(): void {
-    if (this.pendingTimeout) {
-      clearTimeout(this.pendingTimeout);
-      this.pendingTimeout = undefined;
+  try {
+    const result = await Promise.race([promise, timeoutPromise]);
+    return result;
+  } finally {
+    clearTimeout(timeoutId!);
+    if (signal && abortHandler) {
+      signal.removeEventListener("abort", abortHandler);
     }
-    this._state = "stopped";
   }
+}
 
-  private isActive(): boolean {
-    return this._state === "scheduled" || this._state === "running";
-  }
-
-  private createAttemptPromise(delayMs: number): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      this.pendingTimeout = setTimeout(() => {
-        this._state = "running";
-        this.callback(
-          (value) => this.settle("completed", resolve, value),
-          (reason) => this.settle("failed", reject, reason),
-          this,
-        );
-      }, delayMs);
-    });
-  }
-
-  private settle<V>(
-    finalState: RetryState,
-    settleFn: (value: V) => void,
-    value: V,
-  ): void {
-    this._state = finalState;
-    this._attemptCount += 1;
-    this.onAttempt?.(this._attemptCount);
-    settleFn(value);
-  }
+function sleep(ms: number, unref: boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    if (unref && typeof timer === "object" && "unref" in timer) {
+      timer.unref();
+    }
+  });
 }
