@@ -1,2 +1,4 @@
-// eslint-disable-next-line import/no-unresolved, import/extensions, import/prefer-default-export
-export { Retry } from './lib/retry';
+export { retry } from "./retry";
+export { AbortError, TimeoutError } from "./errors";
+export * as backoff from "./backoff";
+export type { RetryOptions, RetryableFunction, BackoffStrategy } from "./types";
