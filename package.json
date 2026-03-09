@@ -1,16 +1,28 @@
 {
   "name": "ejmorgan-retry",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "files": [
     "dist",
     "src"
   ],
-  "typings": "dist/index.d.ts",
   "license": "MIT",
-  "description": "A simple and lightweight package to retry various execution contexts.",
+  "description": "Production-grade retry with exponential backoff, jitter, abort signals, and timeouts.",
   "repository": "git@github.com:everettmorgan/retry.git",
   "author": "Everett Morgan",
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "retry",
+    "backoff",
+    "exponential",
+    "jitter",
+    "abort",
+    "timeout",
+    "resilience"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "yarn linter && yarn tests",
@@ -20,7 +32,7 @@
   "devDependencies": {
     "@types/chai": "^4.2.22",
     "@types/mocha": "^9.0.0",
-    "@types/node": "^16.11.10",
+    "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^5.4.0",
     "@typescript-eslint/parser": "^5.4.0",
     "chai": "^4.3.4",
