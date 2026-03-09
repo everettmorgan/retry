@@ -56,7 +56,8 @@ export async function retry<T>(
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
-    throw new AbortError("The operation was aborted");
+    const reason = signal.reason;
+    throw reason instanceof Error ? reason : new AbortError("The operation was aborted");
   }
 }
 
@@ -100,7 +101,8 @@ async function raceWithTimeout<T>(
 
     if (signal) {
       abortHandler = () => {
-        reject(new AbortError("The operation was aborted"));
+        const reason = signal.reason;
+        reject(reason instanceof Error ? reason : new AbortError("The operation was aborted"));
       };
       signal.addEventListener("abort", abortHandler, { once: true });
     }
