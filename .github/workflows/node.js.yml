@@ -25,8 +25,10 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-    - run: npm install yarn -g
-    - run: rm -rf node_modules && yarn install --frozen-lockfile
-    - run: yarn tsc
-    - run: yarn test
+        cache: 'yarn'
+    - name: Install dependencies
+      run: rm -rf node_modules && yarn install --frozen-lockfile
+    - name: Build
+      run: yarn tsc
+    - name: Lint and test
+      run: yarn test
