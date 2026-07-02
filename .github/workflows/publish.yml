@@ -35,10 +35,22 @@ jobs:
         run: |
           npm pack --dry-run
           node -e "const m = require('./dist/index.js'); if (typeof (m.retry ?? m.Retry) !== 'function') { throw new Error('missing expected exports'); }"
+      - name: Check whether this version is already on npm
+        id: registry
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "ejmorgan-retry@$VERSION" version >/dev/null 2>&1; then
+            echo "ejmorgan-retry@$VERSION already published; skipping publish."
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish to npm
+        if: steps.registry.outputs.published == 'false'
         run: |
           MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
-          if [ "$MAJOR" = "1" ]; then DIST_TAG="v1"; else DIST_TAG="latest"; fi
+          # "v1" is rejected by npm (dist-tags must not parse as a semver range)
+          if [ "$MAJOR" = "1" ]; then DIST_TAG="legacy"; else DIST_TAG="latest"; fi
           echo "Publishing with dist-tag: $DIST_TAG"
           npm publish --provenance --access public --tag "$DIST_TAG"
         env:
