@@ -27,12 +27,15 @@ Retries 3 times with exponential backoff and jitter by default.
 Use `bail()` to immediately stop retrying when an error is permanent:
 
 ```typescript
-const data = await retry(async (bail) => {
-  const res = await fetch(url);
-  if (res.status === 403) bail(new Error("Forbidden"));
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}, { retries: 5 });
+const data = await retry(
+  async (bail) => {
+    const res = await fetch(url);
+    if (res.status === 403) bail(new Error("Forbidden"));
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  },
+  { retries: 5 },
+);
 ```
 
 ## Backoff Strategies
@@ -69,16 +72,19 @@ const controller = new AbortController();
 // Cancel after 30 seconds
 setTimeout(() => controller.abort(), 30_000);
 
-const data = await retry(async () => {
-  return await fetchData();
-}, { retries: 10, signal: controller.signal });
+const data = await retry(
+  async () => {
+    return await fetchData();
+  },
+  { retries: 10, signal: controller.signal },
+);
 ```
 
 ## Timeouts
 
 ```typescript
 await retry(fn, {
-  timeout: 5_000,       // 5s per attempt
+  timeout: 5_000, // 5s per attempt
   totalTimeout: 60_000, // 60s across all attempts
   retries: 10,
 });
@@ -117,43 +123,44 @@ await retry(fn, {
 Executes `fn` and retries on failure according to `options`.
 
 **`fn(bail, attempt)`** — The function to execute.
+
 - `bail(error: Error)` — Call to abort retries immediately. Throws the given error.
 - `attempt` — The current attempt number (1-indexed).
 
 **`options`**
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `retries` | `number` | `3` | Maximum number of retries |
-| `backoff` | `BackoffStrategy` | `exponential()` | Backoff strategy function |
-| `signal` | `AbortSignal` | — | Cancellation signal |
-| `timeout` | `number` | — | Per-attempt timeout (ms) |
-| `totalTimeout` | `number` | — | Total timeout across all attempts (ms) |
-| `shouldRetry` | `(error: unknown) => boolean` | — | Return `false` to stop retrying |
-| `onRetry` | `(error: unknown, attempt: number) => void` | — | Called after each failed attempt |
-| `unref` | `boolean` | `false` | Unref internal timers |
+| Option         | Type                                        | Default         | Description                            |
+| -------------- | ------------------------------------------- | --------------- | -------------------------------------- |
+| `retries`      | `number`                                    | `3`             | Maximum number of retries              |
+| `backoff`      | `BackoffStrategy`                           | `exponential()` | Backoff strategy function              |
+| `signal`       | `AbortSignal`                               | —               | Cancellation signal                    |
+| `timeout`      | `number`                                    | —               | Per-attempt timeout (ms)               |
+| `totalTimeout` | `number`                                    | —               | Total timeout across all attempts (ms) |
+| `shouldRetry`  | `(error: unknown) => boolean`               | —               | Return `false` to stop retrying        |
+| `onRetry`      | `(error: unknown, attempt: number) => void` | —               | Called after each failed attempt       |
+| `unref`        | `boolean`                                   | `false`         | Unref internal timers                  |
 
 ### `backoff.exponential(options?): BackoffStrategy`
 
 Returns an exponential backoff strategy with full jitter (AWS best practice).
 
-| Option | Default | Description |
-|---|---|---|
-| `base` | `1000` | Base delay in ms |
-| `factor` | `2` | Multiplier per attempt |
-| `maxDelay` | `30000` | Maximum delay cap in ms |
-| `jitter` | `true` | Apply full jitter randomization |
+| Option     | Default | Description                     |
+| ---------- | ------- | ------------------------------- |
+| `base`     | `1000`  | Base delay in ms                |
+| `factor`   | `2`     | Multiplier per attempt          |
+| `maxDelay` | `30000` | Maximum delay cap in ms         |
+| `jitter`   | `true`  | Apply full jitter randomization |
 
 ### `backoff.linear(options?): BackoffStrategy`
 
 Returns a linear backoff strategy.
 
-| Option | Default | Description |
-|---|---|---|
-| `base` | `1000` | Starting delay in ms |
-| `increment` | `1000` | Added per attempt in ms |
-| `maxDelay` | `30000` | Maximum delay cap in ms |
-| `jitter` | `false` | Apply jitter randomization |
+| Option      | Default | Description                |
+| ----------- | ------- | -------------------------- |
+| `base`      | `1000`  | Starting delay in ms       |
+| `increment` | `1000`  | Added per attempt in ms    |
+| `maxDelay`  | `30000` | Maximum delay cap in ms    |
+| `jitter`    | `false` | Apply jitter randomization |
 
 ### `backoff.constant(delayMs): BackoffStrategy`
 
@@ -166,6 +173,30 @@ Thrown internally when `bail()` is called. The original error is re-thrown to th
 ### `TimeoutError`
 
 Thrown when a per-attempt or total timeout is exceeded.
+
+## Legacy 1.x (`Retry` class)
+
+Version 2.0 replaced the class-based API with the `retry()` function above. The original `Retry`
+class API is still maintained on the `1.x` branch and published under the `v1` dist-tag:
+
+```bash
+npm install ejmorgan-retry@1
+```
+
+```javascript
+const { Retry } = require("ejmorgan-retry");
+
+const retry = new Retry((resolve, reject, retry) => {
+  if (retry.attempts < 5) resolve(retry.reschedule(2000));
+  else reject("oof!");
+});
+
+retry.schedule().then(console.log).catch(console.error);
+```
+
+## Requirements
+
+Node.js >= 18.
 
 ## License
 
