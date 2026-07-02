@@ -57,7 +57,7 @@ describe("retry", function () {
   });
 
   it("calls onRetry after each failed attempt", async () => {
-    const retryLog: Array<{ error: string; attempt: number }> = [];
+    const retryLog: { error: string; attempt: number }[] = [];
 
     try {
       await retry(
@@ -185,9 +185,7 @@ describe("retry", function () {
       );
       expect.fail("should have thrown");
     } catch (error) {
-      expect(error).to.satisfy(
-        (e: unknown) => e instanceof TimeoutError || e instanceof Error,
-      );
+      expect(error).to.satisfy((e: unknown) => e instanceof TimeoutError || e instanceof Error);
       expect(attempts).to.be.greaterThan(0);
       expect(attempts).to.be.lessThan(100);
     }

@@ -1,0 +1,45 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write # npm provenance attestation
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: yarn
+          registry-url: "https://registry.npmjs.org"
+      - run: yarn install --frozen-lockfile
+      - name: Verify release tag matches package.json version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Version mismatch: package.json is $PKG_VERSION but tag is $TAG_VERSION"
+            exit 1
+          fi
+      - run: yarn lint
+      - run: yarn typecheck
+      - run: yarn coverage
+      - run: yarn build
+      - name: Smoke-test built artifact
+        run: |
+          npm pack --dry-run
+          node -e "const m = require('./dist/index.js'); if (typeof (m.retry ?? m.Retry) !== 'function') { throw new Error('missing expected exports'); }"
+      - name: Publish to npm
+        run: |
+          MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
+          if [ "$MAJOR" = "1" ]; then DIST_TAG="v1"; else DIST_TAG="latest"; fi
+          echo "Publishing with dist-tag: $DIST_TAG"
+          npm publish --provenance --access public --tag "$DIST_TAG"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

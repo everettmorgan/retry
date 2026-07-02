@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 1.x]
+  pull_request:
+    branches: [main, 1.x]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: yarn lint
+      - run: yarn format:check
+      - run: yarn typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x, 22.x, 24.x]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+      # --ignore-engines: lint-only devDependencies (ESLint 9) require newer
+      # Node than the oldest supported runtime; this job only builds and tests.
+      - run: yarn install --frozen-lockfile --ignore-engines
+      - run: yarn build
+      - run: yarn coverage
+      - uses: actions/upload-artifact@v4
+        if: matrix.node-version == '22.x'
+        with:
+          name: coverage
+          path: coverage

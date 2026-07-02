@@ -14,36 +14,26 @@ interface LinearOptions {
   jitter?: boolean;
 }
 
-export function exponential(options: ExponentialOptions = {}): BackoffStrategy {
-  const {
-    base = 1000,
-    factor = 2,
-    maxDelay = 30_000,
-    jitter = true,
-  } = options;
+const EXPONENTIAL_DEFAULTS = { base: 1000, factor: 2, maxDelay: 30_000, jitter: true };
+const LINEAR_DEFAULTS = { base: 1000, increment: 1000, maxDelay: 30_000, jitter: false };
 
-  return (attempt: number): number => {
-    const delay = Math.min(maxDelay, base * Math.pow(factor, attempt - 1));
-    if (!jitter) return delay;
-    return Math.floor(Math.random() * delay);
-  };
+export function exponential(options: ExponentialOptions = {}): BackoffStrategy {
+  const { base, factor, maxDelay, jitter } = { ...EXPONENTIAL_DEFAULTS, ...options };
+  return (attempt: number): number =>
+    capAndJitter(base * Math.pow(factor, attempt - 1), maxDelay, jitter);
 }
 
 export function linear(options: LinearOptions = {}): BackoffStrategy {
-  const {
-    base = 1000,
-    increment = 1000,
-    maxDelay = 30_000,
-    jitter = false,
-  } = options;
-
-  return (attempt: number): number => {
-    const delay = Math.min(maxDelay, base + increment * (attempt - 1));
-    if (!jitter) return delay;
-    return Math.floor(Math.random() * delay);
-  };
+  const { base, increment, maxDelay, jitter } = { ...LINEAR_DEFAULTS, ...options };
+  return (attempt: number): number =>
+    capAndJitter(base + increment * (attempt - 1), maxDelay, jitter);
 }
 
 export function constant(delayMs: number): BackoffStrategy {
   return (): number => delayMs;
+}
+
+function capAndJitter(rawDelay: number, maxDelay: number, jitter: boolean): number {
+  const delay = Math.min(maxDelay, rawDelay);
+  return jitter ? Math.floor(Math.random() * delay) : delay;
 }
