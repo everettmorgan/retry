@@ -1,202 +1,102 @@
-# ejmorgan-retry
+# ejmorgan-retry (1.x)
 
-Production-grade retry with exponential backoff, jitter, abort signals, and timeouts. Zero dependencies.
+A simple and lightweight package to retry various execution contexts. Zero dependencies.
+
+> **Looking for the modern API?** Version 2.x replaced this class with a declarative
+> `retry()` function (backoff strategies, AbortSignal, timeouts). This `1.x` branch maintains
+> the original `Retry` class with no breaking changes. Install the latest major with
+> `npm install ejmorgan-retry`.
 
 ## Installation
-
-```bash
-npm install ejmorgan-retry
-```
-
-## Quick Start
-
-```typescript
-import { retry } from "ejmorgan-retry";
-
-const data = await retry(async () => {
-  const res = await fetch("https://api.example.com/data");
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-});
-```
-
-Retries 3 times with exponential backoff and jitter by default.
-
-## Bail on Non-Retriable Errors
-
-Use `bail()` to immediately stop retrying when an error is permanent:
-
-```typescript
-const data = await retry(
-  async (bail) => {
-    const res = await fetch(url);
-    if (res.status === 403) bail(new Error("Forbidden"));
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  },
-  { retries: 5 },
-);
-```
-
-## Backoff Strategies
-
-```typescript
-import { retry, backoff } from "ejmorgan-retry";
-
-// Exponential with full jitter (default)
-await retry(fn, {
-  backoff: backoff.exponential({ base: 1000, factor: 2, maxDelay: 30_000 }),
-});
-
-// Linear
-await retry(fn, {
-  backoff: backoff.linear({ base: 500, increment: 500, maxDelay: 10_000 }),
-});
-
-// Constant
-await retry(fn, {
-  backoff: backoff.constant(2000),
-});
-
-// Custom
-await retry(fn, {
-  backoff: (attempt) => attempt * 1000,
-});
-```
-
-## Cancellation with AbortSignal
-
-```typescript
-const controller = new AbortController();
-
-// Cancel after 30 seconds
-setTimeout(() => controller.abort(), 30_000);
-
-const data = await retry(
-  async () => {
-    return await fetchData();
-  },
-  { retries: 10, signal: controller.signal },
-);
-```
-
-## Timeouts
-
-```typescript
-await retry(fn, {
-  timeout: 5_000, // 5s per attempt
-  totalTimeout: 60_000, // 60s across all attempts
-  retries: 10,
-});
-```
-
-## Retry Predicates
-
-Only retry specific errors:
-
-```typescript
-await retry(fn, {
-  retries: 5,
-  shouldRetry: (error) => {
-    if (error instanceof TypeError) return false;
-    return true;
-  },
-});
-```
-
-## Lifecycle Hooks
-
-```typescript
-await retry(fn, {
-  retries: 5,
-  onRetry: (error, attempt) => {
-    console.log(`Attempt ${attempt} failed: ${error}`);
-    metrics.increment("retry.count");
-  },
-});
-```
-
-## API
-
-### `retry<T>(fn, options?): Promise<T>`
-
-Executes `fn` and retries on failure according to `options`.
-
-**`fn(bail, attempt)`** — The function to execute.
-
-- `bail(error: Error)` — Call to abort retries immediately. Throws the given error.
-- `attempt` — The current attempt number (1-indexed).
-
-**`options`**
-
-| Option         | Type                                        | Default         | Description                            |
-| -------------- | ------------------------------------------- | --------------- | -------------------------------------- |
-| `retries`      | `number`                                    | `3`             | Maximum number of retries              |
-| `backoff`      | `BackoffStrategy`                           | `exponential()` | Backoff strategy function              |
-| `signal`       | `AbortSignal`                               | —               | Cancellation signal                    |
-| `timeout`      | `number`                                    | —               | Per-attempt timeout (ms)               |
-| `totalTimeout` | `number`                                    | —               | Total timeout across all attempts (ms) |
-| `shouldRetry`  | `(error: unknown) => boolean`               | —               | Return `false` to stop retrying        |
-| `onRetry`      | `(error: unknown, attempt: number) => void` | —               | Called after each failed attempt       |
-| `unref`        | `boolean`                                   | `false`         | Unref internal timers                  |
-
-### `backoff.exponential(options?): BackoffStrategy`
-
-Returns an exponential backoff strategy with full jitter (AWS best practice).
-
-| Option     | Default | Description                     |
-| ---------- | ------- | ------------------------------- |
-| `base`     | `1000`  | Base delay in ms                |
-| `factor`   | `2`     | Multiplier per attempt          |
-| `maxDelay` | `30000` | Maximum delay cap in ms         |
-| `jitter`   | `true`  | Apply full jitter randomization |
-
-### `backoff.linear(options?): BackoffStrategy`
-
-Returns a linear backoff strategy.
-
-| Option      | Default | Description                |
-| ----------- | ------- | -------------------------- |
-| `base`      | `1000`  | Starting delay in ms       |
-| `increment` | `1000`  | Added per attempt in ms    |
-| `maxDelay`  | `30000` | Maximum delay cap in ms    |
-| `jitter`    | `false` | Apply jitter randomization |
-
-### `backoff.constant(delayMs): BackoffStrategy`
-
-Returns a constant delay strategy.
-
-### `AbortError`
-
-Thrown internally when `bail()` is called. The original error is re-thrown to the caller.
-
-### `TimeoutError`
-
-Thrown when a per-attempt or total timeout is exceeded.
-
-## Legacy 1.x (`Retry` class)
-
-Version 2.0 replaced the class-based API with the `retry()` function above. The original `Retry`
-class API is still maintained on the `1.x` branch and published under the `v1` dist-tag:
 
 ```bash
 npm install ejmorgan-retry@1
 ```
 
+## Usage
+
+### Basic
+
 ```javascript
 const { Retry } = require("ejmorgan-retry");
 
-const retry = new Retry((resolve, reject, retry) => {
+const retry = new Retry(function (resolve, reject, retry) {
   if (retry.attempts < 5) resolve(retry.reschedule(2000));
   else reject("oof!");
 });
 
-retry.schedule().then(console.log).catch(console.error);
+retry
+  .schedule()
+  .then((ok) => console.log(ok))
+  .catch((err) => console.error(err));
 ```
+
+### HTTP Request
+
+```javascript
+const https = require("https");
+const { Retry } = require("ejmorgan-retry");
+
+const retry = new Retry((resolve, reject, retry) => {
+  const req = https.request({/* opts */}, (res) => {
+    let data = "";
+
+    res.on("data", (d) => (data += d));
+    res.on("error", (e) => reject(e));
+
+    res.on("end", () => {
+      if (res.statusCode >= 200 && res.statusCode < 400) {
+        resolve(res);
+      } else if (retry.attempts < 5) {
+        // You MUST resolve() with the reschedule() promise —
+        // `return` or `reject` exits the Retry immediately.
+        resolve(retry.reschedule(2000));
+      } else {
+        reject("ERR");
+      }
+    });
+  });
+
+  req.end();
+});
+
+retry
+  .schedule()
+  .then((res) => console.log(res))
+  .catch((err) => console.error(err));
+```
+
+## API
+
+### `new Retry(context)`
+
+`context(resolve, reject, $this)` — the function to (re)execute.
+
+- `resolve(value)` — settle the retry successfully. Resolve with `$this.reschedule(ms)` to try again.
+- `reject(error)` — settle the retry as failed.
+- `$this` — the `Retry` instance itself.
+
+### Instance members
+
+| Member            | Type                                                                          | Description                                                                    |
+| ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `schedule(time?)` | `(time?: number) => Promise<unknown>`                                         | Run the context in `time` ms (default `0`). Idempotent while a run is pending. |
+| `reschedule(ms)`  | `(ms: number) => Promise<unknown>`                                            | Cancel the pending run and schedule a new one.                                 |
+| `stop()`          | `() => void`                                                                  | Cancel the pending run.                                                        |
+| `attempts`        | `number` (read-only)                                                          | Times the context has settled (resolve or reject).                             |
+| `status`          | `"idle" \| "scheduled" \| "retrying" \| "completed" \| "failed" \| "stopped"` | Current lifecycle state.                                                       |
+| `created`         | `number` (read-only)                                                          | `Date.now()` at construction.                                                  |
+| `uuid`            | `string` (read-only)                                                          | Unique id (UUID v4).                                                           |
+| `max_attempts`    | `number \| undefined`                                                         | Not enforced internally; kept for 1.0.x compatibility.                         |
+
+## Changes since 1.0.6
+
+No API changes. Internals were refactored, dependencies were dropped (now zero), and the
+internal console logging was removed. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 
-Node.js >= 18.
+Node.js >= 14.17.
 
 ## License
 

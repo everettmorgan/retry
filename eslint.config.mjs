@@ -39,6 +39,9 @@ export default defineConfig(
       "@typescript-eslint/require-await": "off",
       "@typescript-eslint/no-unsafe-assignment": "off",
       "@typescript-eslint/no-confusing-void-expression": "off",
+      // Tests must exercise deprecated compat shims and stub console output.
+      "@typescript-eslint/no-deprecated": "off",
+      "no-console": "off",
     },
   },
   {

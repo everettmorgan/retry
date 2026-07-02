@@ -1,283 +1,174 @@
 import { expect } from "chai";
-import { retry, AbortError, TimeoutError, backoff } from "../src/index";
+import { Retry } from "../src";
+import Logger from "../src/lib/logger";
 
-describe("retry", function () {
-  this.timeout(15000);
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-  it("succeeds on first attempt without retrying", async () => {
-    let callCount = 0;
-    const result = await retry(async () => {
-      callCount += 1;
-      return "ok";
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+describe("Retry (legacy 1.x contract)", () => {
+  it("runs the 1.0.6 README pattern unmodified: reschedule until 5 attempts, then reject", async () => {
+    const retry = new Retry(function (resolve, reject, retry) {
+      if (retry.attempts < 5) resolve(retry.reschedule(5));
+      else reject("oof!");
     });
 
+    let rejection: unknown;
+    await retry
+      .schedule()
+      .then(() => expect.fail("should have rejected"))
+      .catch((err: unknown) => (rejection = err));
+
+    expect(rejection).to.equal("oof!");
+    expect(retry.attempts).to.equal(6);
+    expect(retry.status).to.equal("failed");
+  });
+
+  it("resolves with the value passed to resolve()", async () => {
+    const retry = new Retry((resolve) => resolve("ok"));
+    const result = await retry.schedule();
     expect(result).to.equal("ok");
-    expect(callCount).to.equal(1);
+    expect(retry.status).to.equal("completed");
+    expect(retry.attempts).to.equal(1);
   });
 
-  it("returns the resolved value from the function", async () => {
-    const expected = { status: 200, data: [1, 2, 3] };
-    const result = await retry(async () => expected, { retries: 0 });
-    expect(result).to.deep.equal(expected);
+  it("rejects with the value passed to reject() and reports failed status", async () => {
+    const retry = new Retry((_resolve, reject) => reject("nope"));
+    let rejection: unknown;
+    await retry.schedule().catch((err: unknown) => (rejection = err));
+    expect(rejection).to.equal("nope");
+    expect(retry.status).to.equal("failed");
   });
 
-  it("retries the specified number of times before failing", async () => {
-    let attempts = 0;
-
-    try {
-      await retry(
-        async () => {
-          attempts += 1;
-          throw new Error("always fails");
-        },
-        { retries: 4, backoff: backoff.constant(10) },
-      );
-      expect.fail("should have thrown");
-    } catch (error) {
-      expect(error).to.be.instanceOf(Error);
-      expect((error as Error).message).to.equal("always fails");
-      expect(attempts).to.equal(5);
-    }
+  it("returns the same in-flight promise when schedule() is called while pending", () => {
+    const retry = new Retry((resolve) => resolve(undefined));
+    const first = retry.schedule(50);
+    const second = retry.schedule(0);
+    expect(first).to.equal(second);
+    retry.stop();
   });
 
-  it("succeeds after transient failures", async () => {
-    let attempts = 0;
-
-    const result = await retry(
-      async () => {
-        attempts += 1;
-        if (attempts < 3) throw new Error("transient");
-        return "recovered";
-      },
-      { retries: 5, backoff: backoff.constant(10) },
-    );
-
-    expect(result).to.equal("recovered");
-    expect(attempts).to.equal(3);
+  it("creates a fresh run when schedule() is called after completion", async () => {
+    let runs = 0;
+    const retry = new Retry((resolve) => resolve(++runs));
+    await retry.schedule();
+    await retry.schedule();
+    expect(runs).to.equal(2);
+    expect(retry.attempts).to.equal(2);
   });
 
-  it("calls onRetry after each failed attempt", async () => {
-    const retryLog: { error: string; attempt: number }[] = [];
-
-    try {
-      await retry(
-        async () => {
-          throw new Error("fail");
-        },
-        {
-          retries: 3,
-          backoff: backoff.constant(10),
-          onRetry: (error, attempt) => {
-            retryLog.push({
-              error: (error as Error).message,
-              attempt,
-            });
-          },
-        },
-      );
-    } catch {
-      // expected
-    }
-
-    expect(retryLog).to.deep.equal([
-      { error: "fail", attempt: 1 },
-      { error: "fail", attempt: 2 },
-      { error: "fail", attempt: 3 },
-    ]);
+  it("stop() cancels a pending run without invoking the context", async () => {
+    let invoked = false;
+    const retry = new Retry((resolve) => {
+      invoked = true;
+      resolve(undefined);
+    });
+    void retry.schedule(20);
+    retry.stop();
+    await delay(40);
+    expect(invoked).to.equal(false);
+    expect(retry.status).to.equal("stopped");
+    expect(retry.attempts).to.equal(0);
   });
 
-  it("bail aborts retries immediately with the given error", async () => {
-    let attempts = 0;
-
-    try {
-      await retry(
-        async (bail) => {
-          attempts += 1;
-          if (attempts === 2) bail(new Error("non-retriable"));
-          throw new Error("transient");
-        },
-        { retries: 10, backoff: backoff.constant(10) },
-      );
-      expect.fail("should have thrown");
-    } catch (error) {
-      expect(error).to.be.instanceOf(Error);
-      expect((error as Error).message).to.equal("non-retriable");
-      expect(attempts).to.equal(2);
-    }
+  it("resolve(reschedule(ms)) chains the outer promise to the rescheduled run", async () => {
+    const retry = new Retry((resolve, _reject, $this) => {
+      if ($this.attempts === 0) resolve($this.reschedule(5));
+      else resolve("second run");
+    });
+    const result = await retry.schedule();
+    expect(result).to.equal("second run");
+    expect(retry.attempts).to.equal(2);
   });
 
-  it("respects shouldRetry predicate", async () => {
-    let attempts = 0;
-
-    try {
-      await retry(
-        async () => {
-          attempts += 1;
-          if (attempts === 2) throw new TypeError("bad type");
-          throw new RangeError("out of range");
-        },
-        {
-          retries: 5,
-          backoff: backoff.constant(10),
-          shouldRetry: (error) => error instanceof RangeError,
-        },
-      );
-      expect.fail("should have thrown");
-    } catch (error) {
-      expect(error).to.be.instanceOf(TypeError);
-      expect(attempts).to.equal(2);
-    }
+  it("exposes the 1.0.6 shape: created, uuid, attempts, max_attempts, status", () => {
+    const before = Date.now();
+    const retry = new Retry((resolve) => resolve(undefined));
+    expect(retry.uuid).to.match(UUID_V4);
+    expect(retry.created).to.be.at.least(before);
+    expect(retry.created).to.be.at.most(Date.now());
+    expect(retry.attempts).to.equal(0);
+    expect(retry.max_attempts).to.equal(undefined);
+    expect(retry.status).to.equal("idle");
   });
 
-  it("cancels via AbortSignal", async () => {
-    const controller = new AbortController();
-    let attempts = 0;
-
-    setTimeout(() => controller.abort(new Error("cancelled")), 50);
-
-    try {
-      await retry(
-        async () => {
-          attempts += 1;
-          throw new Error("transient");
-        },
-        { retries: 100, backoff: backoff.constant(30), signal: controller.signal },
-      );
-      expect.fail("should have thrown");
-    } catch (error) {
-      expect(error).to.be.instanceOf(Error);
-      expect((error as Error).message).to.equal("cancelled");
-      expect(attempts).to.be.lessThan(100);
-    }
+  it("transitions status idle -> scheduled while waiting", () => {
+    const retry = new Retry((resolve) => resolve(undefined));
+    expect(retry.status).to.equal("idle");
+    void retry.schedule(50);
+    expect(retry.status).to.equal("scheduled");
+    retry.stop();
   });
 
-  it("enforces per-attempt timeout", async () => {
-    let attempts = 0;
-
-    try {
-      await retry(
-        async () => {
-          attempts += 1;
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          return "too slow";
-        },
-        { retries: 1, timeout: 50, backoff: backoff.constant(10) },
-      );
-      expect.fail("should have thrown");
-    } catch (error) {
-      expect(error).to.be.instanceOf(TimeoutError);
-      expect((error as TimeoutError).message).to.include("timed out");
-      expect(attempts).to.equal(2);
-    }
+  it("supports the public status setter with valid values", () => {
+    const retry = new Retry((resolve) => resolve(undefined));
+    retry.status = "failed";
+    expect(retry.status).to.equal("failed");
   });
 
-  it("enforces total timeout across all attempts", async () => {
-    let attempts = 0;
-
-    try {
-      await retry(
-        async () => {
-          attempts += 1;
-          await new Promise((resolve) => setTimeout(resolve, 40));
-          throw new Error("slow fail");
-        },
-        { retries: 100, totalTimeout: 100, backoff: backoff.constant(10) },
-      );
-      expect.fail("should have thrown");
-    } catch (error) {
-      expect(error).to.satisfy((e: unknown) => e instanceof TimeoutError || e instanceof Error);
-      expect(attempts).to.be.greaterThan(0);
-      expect(attempts).to.be.lessThan(100);
-    }
+  it("ignores unknown status values instead of corrupting state", () => {
+    const retry = new Retry((resolve) => resolve(undefined));
+    (retry as { status: string }).status = "bogus";
+    expect(retry.status).to.equal("idle");
   });
 
-  it("accepts custom backoff strategy", async () => {
-    const delays: number[] = [];
-    let attempts = 0;
+  it("passes the Retry instance itself as the third context argument", async () => {
+    let received: unknown;
+    const retry = new Retry((resolve, _reject, $this) => {
+      received = $this;
+      resolve(undefined);
+    });
+    await retry.schedule();
+    expect(received).to.equal(retry);
+  });
+});
 
-    const trackingBackoff = (attempt: number): number => {
-      const delay = attempt * 10;
-      delays.push(delay);
-      return delay;
+describe("legacy deep imports", () => {
+  it("still resolves ejmorgan-retry/dist/lib/retry", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const shim = require("../src/lib/retry") as { Retry: typeof Retry };
+    expect(shim.Retry).to.equal(Retry);
+  });
+
+  it("still resolves ejmorgan-retry/dist/lib/logger with the 1.0.x Logger shape", () => {
+    const logger = new Logger();
+    expect(logger.uuid).to.match(UUID_V4);
+  });
+
+  it("Logger.log emits the 1.0.x [timestamp] [name->prefix] format", () => {
+    const lines: string[] = [];
+    const original = console.log;
+    console.log = (...args: unknown[]): void => {
+      lines.push(args.join(" "));
     };
-
     try {
-      await retry(
-        async () => {
-          attempts += 1;
-          throw new Error("fail");
-        },
-        { retries: 3, backoff: trackingBackoff },
-      );
-    } catch {
-      // expected
+      const logger = new Logger("Retry", "abc123");
+      logger.log("hello", "world");
+      const anonymous = new Logger();
+      anonymous.set.name("Named");
+      anonymous.set.prefix("p1");
+      anonymous.log("again");
+    } finally {
+      console.log = original;
     }
-
-    expect(delays).to.deep.equal([10, 20, 30]);
-    expect(attempts).to.equal(4);
+    expect(lines[0]).to.match(/^\[.+\] \[Retry->abc123\] hello world$/);
+    expect(lines[1]).to.match(/^\[.+\] \[Named->p1\] again$/);
   });
 
-  it("does not retry when retries is 0", async () => {
-    let attempts = 0;
-
+  it("Logger falls back to its uuid when unnamed", () => {
+    const lines: string[] = [];
+    const original = console.log;
+    console.log = (...args: unknown[]): void => {
+      lines.push(args.join(" "));
+    };
     try {
-      await retry(
-        async () => {
-          attempts += 1;
-          throw new Error("no retries");
-        },
-        { retries: 0 },
-      );
-      expect.fail("should have thrown");
-    } catch (error) {
-      expect((error as Error).message).to.equal("no retries");
-      expect(attempts).to.equal(1);
-    }
-  });
-
-  it("passes correct 1-indexed attempt number", async () => {
-    const attemptNumbers: number[] = [];
-
-    await retry(
-      async (_bail, attempt) => {
-        attemptNumbers.push(attempt);
-        if (attempt < 3) throw new Error("not yet");
-        return "done";
-      },
-      { retries: 5, backoff: backoff.constant(10) },
-    );
-
-    expect(attemptNumbers).to.deep.equal([1, 2, 3]);
-  });
-
-  it("throws AbortError type from bail", async () => {
-    try {
-      await retry(async (bail) => {
-        bail(new Error("fatal"));
-      });
-      expect.fail("should have thrown");
-    } catch (error) {
-      expect(error).to.be.instanceOf(Error);
-      expect((error as Error).message).to.equal("fatal");
-      expect(error).not.to.be.instanceOf(AbortError);
-    }
-  });
-
-  it("works with synchronous return values", async () => {
-    const result = await retry(() => 42, { retries: 0 });
-    expect(result).to.equal(42);
-  });
-
-  it("rejects with pre-aborted signal", async () => {
-    const controller = new AbortController();
-    controller.abort(new Error("already cancelled"));
-
-    try {
-      await retry(async () => "should not run", { signal: controller.signal });
-      expect.fail("should have thrown");
-    } catch (error) {
-      expect(error).to.be.instanceOf(Error);
-      expect((error as Error).message).to.equal("already cancelled");
+      const logger = new Logger();
+      logger.log("x");
+      expect(lines[0]).to.contain(logger.uuid);
+    } finally {
+      console.log = original;
     }
   });
 });

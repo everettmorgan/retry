@@ -1,89 +1,88 @@
-import { AbortError, abortReasonToError } from "./abort-error";
-import { TimeoutError } from "./timeout-error";
-import { exponential } from "./backoff";
-import { executeAttempt } from "./attempt";
-import type { BackoffStrategy, RetryOptions, RetryableFunction } from "./types";
+import { randomUUID } from "crypto";
+import { Scheduler } from "./scheduler";
+import { RetryStatus, RetryStatusName } from "./status";
 
-const DEFAULT_RETRIES = 3;
+export type RetryContext = (
+  resolve: (toResolve: unknown) => void,
+  reject: (toReject: unknown) => void,
+  $this: Retry,
+) => void;
 
-type ResolvedOptions = RetryOptions & {
-  retries: number;
-  backoff: BackoffStrategy;
-  unref: boolean;
-};
+export class Retry {
+  /** When the Retry was first created. */
+  readonly created: number = Date.now();
 
-export async function retry<T>(fn: RetryableFunction<T>, options: RetryOptions = {}): Promise<T> {
-  const config = withDefaults(options);
-  const startTime = Date.now();
-  let lastError: unknown;
+  /** The UUID for the Retry. */
+  readonly uuid: string = randomUUID();
 
-  for (let attempt = 1; attempt <= config.retries + 1; attempt++) {
-    throwIfAborted(config.signal);
-    throwIfTotalTimeoutExceeded(config.totalTimeout, startTime);
+  /** Max attempts allowed for the Retry. Public since 1.0.x; not enforced internally. */
+  max_attempts?: number;
 
-    try {
-      return await executeAttempt(fn, attempt, config);
-    } catch (error) {
-      lastError = await handleAttemptFailure(error, attempt, config);
+  private readonly context: RetryContext;
+  private readonly scheduler = new Scheduler();
+  private readonly currentStatus = new RetryStatus();
+  private attemptCount = 0;
+  private pendingRun?: Promise<unknown>;
+
+  constructor(context: RetryContext) {
+    this.context = context;
+  }
+
+  get status(): RetryStatusName {
+    return this.currentStatus.name;
+  }
+
+  set status(value: RetryStatusName) {
+    this.currentStatus.name = value;
+  }
+
+  get attempts(): number {
+    return this.attemptCount;
+  }
+
+  /** Schedules the context to run in `time` milliseconds. Returns the in-flight promise if already pending. */
+  schedule(time = 0): Promise<unknown> {
+    if (this.currentStatus.isPending && this.pendingRun) {
+      return this.pendingRun;
     }
+    this.pendingRun = this.createRun(time);
+    this.currentStatus.name = "scheduled";
+    return this.pendingRun;
   }
 
-  throw lastError;
-}
-
-function withDefaults(options: RetryOptions): ResolvedOptions {
-  return { retries: DEFAULT_RETRIES, backoff: exponential(), unref: false, ...options };
-}
-
-async function handleAttemptFailure(
-  error: unknown,
-  attempt: number,
-  config: ResolvedOptions,
-): Promise<unknown> {
-  if (error instanceof AbortError) {
-    throw error.originalError;
+  /** Cancels any pending run and schedules a new one. Resolve with the returned promise to chain retries. */
+  reschedule(newTime: number): Promise<unknown> {
+    this.stop();
+    return this.schedule(newTime);
   }
-  throwIfAborted(config.signal);
-  if (config.shouldRetry && !(await config.shouldRetry(error))) {
-    throw error;
-  }
-  if (attempt <= config.retries) {
-    await waitBeforeRetry(error, attempt, config);
-  }
-  return error;
-}
 
-async function waitBeforeRetry(
-  error: unknown,
-  attempt: number,
-  config: ResolvedOptions,
-): Promise<void> {
-  await config.onRetry?.(error, attempt);
-  await sleep(config.backoff(attempt), config.unref);
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) {
-    const reason: unknown = signal.reason;
-    throw abortReasonToError(reason);
+  /** Stops the scheduled run. */
+  stop(): void {
+    this.scheduler.cancel();
+    this.currentStatus.name = "stopped";
   }
-}
 
-function throwIfTotalTimeoutExceeded(totalTimeout: number | undefined, startTime: number): void {
-  if (totalTimeout === undefined) {
-    return;
+  private createRun(delayMs: number): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      this.scheduler.schedule(() => {
+        this.runContext(resolve, reject);
+      }, delayMs);
+    });
   }
-  const elapsed = Date.now() - startTime;
-  if (elapsed >= totalTimeout) {
-    throw new TimeoutError(`Total timeout of ${totalTimeout}ms exceeded after ${elapsed}ms`);
-  }
-}
 
-function sleep(ms: number, unref: boolean): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    if (unref) {
-      timer.unref();
-    }
-  });
+  private runContext(resolve: (value: unknown) => void, reject: (value: unknown) => void): void {
+    this.currentStatus.name = "retrying";
+    this.context(this.settleWith("completed", resolve), this.settleWith("failed", reject), this);
+  }
+
+  private settleWith(
+    status: RetryStatusName,
+    settle: (value: unknown) => void,
+  ): (value: unknown) => void {
+    return (value: unknown): void => {
+      this.currentStatus.name = status;
+      this.attemptCount += 1;
+      settle(value);
+    };
+  }
 }

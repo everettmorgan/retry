@@ -1,26 +1,18 @@
 {
   "name": "ejmorgan-retry",
-  "version": "2.0.0",
+  "version": "1.1.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "require": "./dist/index.js",
-      "default": "./dist/index.js"
-    },
-    "./package.json": "./package.json"
-  },
   "files": [
     "dist",
     "src"
   ],
   "license": "MIT",
-  "description": "Production-grade retry with exponential backoff, jitter, abort signals, and timeouts.",
+  "description": "A simple and lightweight package to retry various execution contexts.",
   "repository": "git@github.com:everettmorgan/retry.git",
   "author": "Everett Morgan",
   "engines": {
-    "node": ">=18"
+    "node": ">=14.17"
   },
   "packageManager": "yarn@1.22.22",
   "keywords": [
@@ -33,7 +25,7 @@
     "resilience"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "typecheck": "tsc -p tsconfig.eslint.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
