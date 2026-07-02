@@ -177,7 +177,7 @@ Thrown when a per-attempt or total timeout is exceeded.
 ## Legacy 1.x (`Retry` class)
 
 Version 2.0 replaced the class-based API with the `retry()` function above. The original `Retry`
-class API is still maintained on the `1.x` branch and published under the `v1` dist-tag:
+class API is still maintained on the `1.x` branch and published under the `legacy` dist-tag:
 
 ```bash
 npm install ejmorgan-retry@1
